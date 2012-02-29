@@ -1,0 +1,775 @@
+<html>
+<head>
+    
+  <title>Bloodflow</title>
+  <style>
+    body {
+      margin:0px;
+      padding:0px;
+      text-align:center;
+      background:black;
+      overflow: hidden;
+    }
+    
+    canvas {
+      outline:0;
+      border:0px solid #000;
+      margin:0px;
+      padding:0px;
+      width:800px;
+      height:600px;
+      position:absolute;
+      top:0px;
+      //cursor:none;
+    }
+    #background {z-index:-1; background:#990000;}
+    #cells { z-index:0; }
+    #blood { z-index:1; }
+    #c     { z-index:2; }
+    #controls { position: absolute; bottom:0px; right: 0px; display:none; }
+  </style>
+    <meta name="viewport" 
+      content="user-scalable=no, width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+</head>
+  <body>
+   <canvas id='background'></canvas>
+   <canvas id='cells'></canvas>
+   <canvas id='blood'></canvas>
+   <canvas id='c'></canvas>
+
+<script>
+  var w=window,d=document,e=d.documentElement,g=d.getElementsByTagName('body')[0],
+  width=w.innerWidth||e.clientWidth||g.clientWidth,height=w.innerHeight||e.clientHeight||g.clientHeight;
+  width = Math.min(width, 800);
+  height = Math.min(height, 600);
+  var gLoop = false,
+  points = 0,
+  state = true,
+  fps = 30,
+  armMaxX = width;
+  var now, delta, lastTime, frames, totalTime, updateTime, updateFrames;
+  var soundChannel = [];
+
+  var C = new (function() {
+    this.bgid = document.getElementById('background');
+    this.bg = this.bgid.getContext('2d');
+    this.ccid = document.getElementById('cells');
+    this.cc = this.ccid.getContext('2d');
+    this.blid = document.getElementById('blood');
+    this.blood = this.blid.getContext('2d');
+    this.c = document.getElementById('c');
+    this.ctx = this.c.getContext('2d');
+    this.width = width;
+    this.height = height;
+    this.setWidth = function(wx) {
+      wx = Math.max(wx, 320);
+      width = Math.min(wx, 800);
+      this.bgid.width = width;
+      this.ccid.width = width;
+      this.blid.width = width;
+      this.c.width = width;
+      this.width = width;
+    }
+    this.setHeight = function(hx) {
+      hx = Math.max(hx, 200);
+      height = Math.min(hx, 600);
+      this.bgid.height = height;
+      this.ccid.height = height;
+      this.blid.height = height;
+      this.c.height = height;
+      this.height = height;
+    }
+  })();
+
+  C.setWidth(width);
+  C.setHeight(height);
+
+  
+  var sounds = [];
+  var boolBGM = 1;
+  var boolSFX = 1;
+  var volBGM = 0.25;
+  var volSFX = 0.25;
+  var paused = false;
+    soundNames = ["BAD_CELL","BAD_GUY","Bad_Guy_Contact","Blood_enviro","LOSER!!","LOSER_2","Move_Down","Move_Left","Move_Right","Move_Up","win_loop"];
+    for (var s in soundNames) {
+      try {
+        sounds[soundNames[s]] = new Audio("sounds/"+soundNames[s]+".wav");
+        sounds[soundNames[s]].load();
+        //console.log(soundNames[s] + " loaded");
+      } catch(e) { console.log(soundNames[s] + " failed"); }
+    }
+
+
+  var playSound = function(sound) {
+    if(boolSFX) {
+      try {
+        //sounds[sound].currentTime = 0;
+        if(sounds[sound].ended || (sounds[sound].currentTime == 0)) {
+          sounds[sound].volume = volSFX;
+          sounds[sound].play();
+        }
+      } catch (e) {}
+    }
+  };
+
+  try {
+    bgm = new Audio("sounds/Blood_enviro.wav");
+    if (typeof bgm.loop == 'boolean') {
+      bgm.loop= true;
+    } else {
+      bgm.addEventListener('ended', function() {
+        this.currentTime = 0;
+        this.play();
+      }, false);
+    }
+    if(boolBGM) {
+      bgm.volume = 0;
+      bgm.play();
+      fadeIn();
+    }
+  } catch(e) {}
+
+var clear = function(ctx){
+  //ctx.fillStyle = '#880044';
+  //ctx.fillStyle = 'rgba(128,0,0,'+(1-(points/nrOfWalls))+')';
+  ctx.clearRect(0, 0, width, height);
+  //ctx.beginPath();
+  //ctx.rect(0, 0, width, height);
+  //ctx.closePath();
+  //ctx.fill();
+};
+
+var fog = function(ctx){
+  var r=128,g=0,b=128;
+  ctx.fillStyle = 'rgba(128,128,128,'+(1-(points/nrOfWalls))+')';
+  var gradient = ctx.createLinearGradient(width/2, 0, width/2, height);
+  gradient.addColorStop(0.0, 'rgba(255,255,255,0)');
+  gradient.addColorStop(0.1, 'rgba('+r+  ','+g+  ','+b+  ',0.7)');
+  gradient.addColorStop(0.4, 'rgba('+r/2+','+g/2+','+b/2+',0.8)');
+  gradient.addColorStop(0.6, 'rgba('+r/2+','+g/2+','+b/2+',0.8)');
+  gradient.addColorStop(0.9, 'rgba('+r+  ','+g+  ','+b+  ',0.7)');
+  gradient.addColorStop(1.0, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.closePath();
+  ctx.fill();
+};
+
+var numBubbles = 10, bubbles = [];
+var health = 10, bodyCircles = [];
+
+for (var i = 0; i < numBubbles; i++) 
+  bubbles.push([Math.random() * width, Math.random() * height, Math.random() * 100, Math.random() / 8]);
+
+
+var drawBubbles = function(ctx){
+  if(fps < 10) { numBubbles = fps; } else { numBubbles = 10; }
+  for (var i = 0; i < numBubbles; i++) {
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + bubbles[i][3] + ')';
+    ctx.beginPath();
+    ctx.arc(bubbles[i][0], bubbles[i][1], bubbles[i][2], 0, Math.PI * 2, true);
+    ctx.closePath();
+    ctx.fill();
+  }
+  moveBubbles(-20);
+};
+
+var moveBubbles = function(e){
+  for (var i = 0; i < numBubbles; i++) {
+    if (bubbles[i][0] + bubbles[i][2] < 0) {
+      bubbles[i][0] = width; //Math.random() * width;
+      bubbles[i][2] = Math.random() * 40;
+      bubbles[i][1] = Math.random() * height; //0 - bubbles[i][2];
+      bubbles[i][3] = Math.random() / 8;
+    } else if (bubbles[i][0] - bubbles[i][2] > width) {
+      bubbles[i][0] = 0; //Math.random() * width;
+      bubbles[i][2] = Math.random() * 40;
+      bubbles[i][1] = Math.random() * height; //0 - bubbles[i][2];
+      bubbles[i][3] = Math.random() / 2;
+    }
+    else {
+      bubbles[i][0] += e;
+      bubbles[i][1] += (Math.random() - 0.5) * 10;
+    }
+  }
+};
+
+var player = new (function(){
+  var thisplayer = this;
+  //thisplayer.image = new Image();
+
+  //thisplayer.image.src = "http://i.imgur.com/roOGx.png";
+  thisplayer.width = 24;
+  thisplayer.height = 24;
+  thisplayer.frames = 1;
+  thisplayer.actualFrame = 0;
+  thisplayer.X = 0;
+  thisplayer.Y = 0; 
+  thisplayer.goalX = 0;
+  thisplayer.goalY = 0;
+
+  thisplayer.jumpSpeed = 0;
+  thisplayer.fallSpeed = 0;
+  
+  bodyCircles.push([0, 0, thisplayer.height*0.5, 0.5, 0]);
+  for (var i = 1; i < health; i++) 
+  bodyCircles.push([(Math.random() - 0.5) * thisplayer.width, (Math.random() - 0.5) * thisplayer.height, Math.random() * thisplayer.width/2, 1, Math.random() * 2 * Math.PI]);
+   
+    
+  thisplayer.move = function(){
+    if (thisplayer.goalX < 0) { thisplayer.goalX = 0; }
+    if (thisplayer.goalX > width) { thisplayer.goalX = width; }
+    if (thisplayer.goalY < 0) { thisplayer.goalY = 0; }
+    if (thisplayer.goalY > height - (thisplayer.height+20)) { thisplayer.goalY = height-(thisplayer.height+20); }
+    var ease = 2;
+    thisplayer.setPosition((thisplayer.goalX + thisplayer.X*ease) / (ease+1), (thisplayer.goalY + thisplayer.Y*ease) / (ease+1));
+
+  };
+
+  
+  thisplayer.setPosition = function(x, y){
+    thisplayer.X = x;
+    thisplayer.Y = y;
+  };
+  
+  thisplayer.interval = 0;
+  thisplayer.draw = function(ctx){
+    try {
+      //ctx.drawImage(thisplayer.image, 0, thisplayer.height * thisplayer.actualFrame, thisplayer.width, thisplayer.height, thisplayer.X, thisplayer.Y, thisplayer.width, thisplayer.height);
+      bodyCircles[0][4] += Math.random() / 5;
+      
+      ctx.save();
+      ctx.translate(thisplayer.X, thisplayer.Y);
+      var blorp = Math.cos(bodyCircles[0][4]) / 3;
+      ctx.scale(blorp+(health/5), (health/5)-blorp);
+      ctx.beginPath();
+      ctx.arc(bodyCircles[0][0], bodyCircles[0][1], bodyCircles[0][2], 0, Math.PI*2, true);
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,0,0,0.9)';
+      var gradient = ctx.createRadialGradient(bodyCircles[0][0]+thisplayer.X, bodyCircles[0][1]+thisplayer.Y, 5, bodyCircles[0][0]+thisplayer.X, bodyCircles[0][1]+thisplayer.Y, thisplayer.width);
+      gradient.addColorStop(0, 'rgba(255,0,0,0.6)');
+      gradient.addColorStop(1, 'rgba(255,255,0,0.5)');
+      ctx.fillStyle = gradient;
+      ctx.stroke();
+      ctx.fill();
+      //ctx.fillStyle = "rgba(0,0,0,1)";
+      //ctx.fillRect(thisplayer.X,thisplayer.Y,thisplayer.width,thisplayer.height);
+      ctx.closePath();
+
+      if(fps > 15) {
+        for (var i = 1; i < health; i++) {
+           bodyCircles[i][0] = (bodyCircles[i][0] + Math.cos(bodyCircles[i][4] )) % (thisplayer.width*2);
+           bodyCircles[i][1] = (bodyCircles[i][1] + Math.sin(bodyCircles[i][4] )) % (thisplayer.height*2);
+           bodyCircles[i][3] += (Math.random()- 0.5) * 0.001 ;
+           bodyCircles[i][4] += Math.random() / 100;
+  
+           var fillStyle = Math.abs(~~(bodyCircles[i][0] * 100) % 255);
+           //console.log(fillStyle);
+  	 ctx.fillStyle = 'rgba('+(~~(25*health))+', 0, '+ fillStyle +', ' + bodyCircles[i][3] + ')';
+           ctx.strokeStyle = 'rgba(0,0,0,1)';
+           ctx.beginPath();
+           ctx.arc(bodyCircles[i][0] % ~~(thisplayer.width * 0.67) + thisplayer.X, bodyCircles[i][1] % ~~(thisplayer.height * 0.67) + thisplayer.Y, bodyCircles[i][2] * (health/10), 0, Math.PI * 2, true);
+           ctx.fill();
+           ctx.stroke();
+           ctx.closePath();
+        }
+       }
+    }
+    catch (e) {
+    }
+    
+    if (thisplayer.interval == 15 ) { // 4 ) {
+      if (thisplayer.actualFrame == thisplayer.frames) {
+        thisplayer.actualFrame = 0;
+      }
+      else {
+        thisplayer.actualFrame++;
+      }
+      thisplayer.interval = 0;
+    }
+    thisplayer.interval++;
+  };
+})();
+
+  player.setPosition(width/4, height/2);
+  player.goalX = width/4;
+  player.goalY = height/2;
+
+  var keyDown = [];
+  document.onkeydown = function(e){
+    keyDown[e.keyCode] = true;
+    if(keyDown[27]) { paused = !paused; fadeIn(); }
+  };
+
+  document.onkeyup = function(e){
+     keyDown[e.keyCode] = false;
+     if(gLoop === false && state === true) {
+       init();
+       GameLoop();
+     }
+  };
+
+  //touchmove code from sitepen.com
+  document.addEventListener("touchmove", function(event) {
+    // Only deal with one finger
+    if(event.touches.length == 1){
+        // Get the information for finger #1
+        var touch = event.touches[0];
+        // Position the element under the touch point
+        player.goalX = touch.pageX;
+        player.goalY = touch.pageY - 10;
+    }
+    if(gLoop === false && state === true) {
+      init();
+      GameLoop();
+    }
+  }, false);
+
+  var getInput = function() {
+    var playerSpeed = level() / 10 + 10;
+     if(keyDown[37] || keyDown[65]) { player.goalX -= playerSpeed; playSound("Move_Left");}  //left
+     if(keyDown[38] || keyDown[87]) { player.goalY -= playerSpeed; playSound("Move_Up");}  //up
+     if(keyDown[39] || keyDown[68]) { player.goalX += playerSpeed; playSound("Move_Right");} //right
+     if(keyDown[40] || keyDown[83]) { player.goalY += playerSpeed; playSound("Move_Down");} //down
+
+  };
+
+  var walls = [],
+    wallHeight = ~~(height / 16),
+    wallWidth = wallHeight,
+    vWalls = ~~(height / wallHeight) + 1,
+    hWalls = ~~(width / wallWidth * 2) + 1,
+    nrOfWalls = vWalls * hWalls;
+  var newHeight = height/2;
+  var wallSpacing = 10;
+
+  var Wall = function(x, y, type){
+    var thiswall=this;
+
+    thiswall.changed = false;
+
+    thiswall.firstColor = 'rgba(255,100,0,.8)';
+    thiswall.secondColor = 'rgba(255,255,0,.7)';
+
+    if (type === 1) {
+      thiswall.firstColor = 'rgba(0,64,0,.8)';
+      thiswall.secondColor = 'rgba(255,255,0,.7)';
+    }
+
+    thiswall.x = ~~ x;
+    thiswall.y = y;
+    thiswall.type = type;
+
+
+    thiswall.draw = function(ctx){
+      var xx = thiswall.x;
+      var yy = thiswall.y;
+      var z = Math.abs((height/2) - thiswall.y)  / 200;
+      z = (z*0.4) + 0.5;
+      var xDepth = ((width/2) - thiswall.x) / 10;
+      var yDepth = ((height/2) - thiswall.y) / 20;
+      xx = xx - (xDepth * z);
+      yy = yy - (yDepth * z);
+      ctx.fillStyle = thiswall.firstColor;
+      //var gradient = ctx.createRadialGradient(xx, yy, 5, xx, yy, wallWidth * z);
+      //gradient.addColorStop(0, thiswall.firstColor);
+      //gradient.addColorStop(1, thiswall.secondColor);
+      //ctx.fillStyle = gradient;
+      ctx.strokeStyle = thiswall.secondColor;
+      ctx.beginPath();
+      ctx.arc(xx, yy, (wallWidth/2) * z, 0, Math.PI * 2, true);
+      ctx.fill();
+      ctx.stroke();
+      ctx.closePath();
+      if(thiswall.changed) {
+        C.ctx.font = "bold 18pt Arial";
+        if(type == 1) {
+          C.ctx.fillStyle = "white";
+          C.ctx.fillText("+1", xx, yy);
+        } else {
+          C.ctx.fillStyle = "#00FFEE";
+          C.ctx.fillText("-1", xx, yy);
+        }
+      }
+
+    };
+
+    //**********COLLISION**********//
+
+    thiswall.onCollide = function(w, i, j){
+      // what happens when player hits regular wall?
+      if(walls[i][j].changed === false) {
+        w.change(w, i, j);
+        player.Y += w.y < (height/2) ? 50 : -50 ;
+        player.X -= wallWidth;
+        player.goalY = player.Y;
+        player.goalX = player.X;
+        health -= 1;
+        if(w.type === 1) {
+          playSound("BAD_CELL");
+        } else {
+          playSound("Bad_Guy_Contact");
+        }
+      }
+    };
+
+    thiswall.change = function(w, i, j) {
+      walls[i][j] = new Wall(w.x, w.y, 1 - w.type);
+      walls[i][j].changed = true;
+      points++;
+      if(points === nrOfWalls) { state = false; GameOver("Win");}
+    }
+
+    thiswall.spread = function(w, i, j) {
+      if((i > 0 && walls[i-1][j].type === 1) || (i < hWalls - 1 && walls[i+1][j].type === 1) ||
+         (j > 0 && walls[i][j-1].type === 1) || (j < vWalls - 1 && walls[i][j+1].type === 1)) {
+         w.change(w, i, j);
+      }
+    }
+
+    return thiswall;
+  };
+
+
+  var generateWalls = function(){
+    var type;
+    for (var i = 0; i < hWalls; i++) {
+      walls.push([]);
+      for (var j = 0; j < vWalls; j++) {
+        walls[i].push(new Wall(wallWidth * i, wallHeight * j, 0));
+      }
+    }
+  };
+
+
+  var moveWalls = function() {
+    for (var i = 0; i < hWalls; i++) {
+      for (var j = 0; j < vWalls; j++) {
+        wall = walls[i][j];
+        wall.x = wall.x - (5 + (5*level()/100));
+        wall.y = wall.y + 10;
+        if (wall.y > height + wallHeight) {
+          wall.y= -wallHeight;
+          wall.x -= wallWidth;
+          wall.changed = false;
+        }
+
+        if (wall.x < -(wallWidth)) {
+          walls[i][j] = new Wall(wall.x + wallWidth*hWalls, wall.y, wall.type);
+        }
+      } //for i
+    } // for j
+
+  }; // moveWalls
+
+  var anArm = function(x,y) {
+    var arm = this;
+    arm.x = x;
+    arm.y = y;
+    arm.direction = 10;
+
+    arm.draw = function(ctx) {
+      //ctx.strokeStyle = 'rgba(200,200,200,.9);';
+      if( arm.y < height/2 ) {
+          step = ((height/2) - arm.y) / 10;
+          for(var i = (arm.direction + 10) / 2; i <= 10 && i >= 0; i -= (arm.direction / 10)) {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba('+(25*i)+',255,228,'+(0.75 + i * 0.025 )+');';
+            ctx.fillStyle = 'rgba('+(25*i)+',255,228,1);';
+            var maxScale = ((1/20) * arm.direction); // +0.5 or -0.5
+            var yScale = arm.y / (height/2); // 0 if y is near top, 1 if near center
+            maxScale = ((9 - i) / 9) * maxScale;
+            armSize = (wallWidth / 2) + ((wallWidth/2) * (maxScale * yScale));
+            //console.log(i, armSize);
+            var yy = (arm.y + step * i);
+            var xx = arm.x + (yScale * maxScale * ( arm.x - width/2) * 0.25);
+            ctx.arc(xx, yy, armSize, 0, Math.PI*2, true);
+            ctx.fill();
+            ctx.closePath();
+          }
+      } else {
+          step = (arm.y - (height/2)) / 10;
+          for(var i = (arm.direction + 10) / 2; i <= 10 && i >= 0; i -= (arm.direction / 10)) {
+            ctx.beginPath();
+            ctx.fillStyle = 'rgba('+(25*i)+',255,228,'+ (0.75 + i * 0.025 )+');';
+            ctx.fillStyle = 'rgba('+(25*i)+',255,228,1);';
+            var maxScale = ((1/20) * arm.direction); // +0.5 or -0.5
+            var yScale = 1 - (arm.y / (height/2) - 1); // 0 if y is near bottom, 1 if near center
+            maxScale = ((9 - i) / 9) * maxScale;
+            armSize = (wallWidth / 2) + ((wallWidth/2) * (maxScale * yScale));
+            //console.log(i, armSize);
+            var yy = (arm.y - step * i);
+            var xx = arm.x + (yScale * maxScale * ( arm.x - width/2) * 0.25);
+            ctx.arc(xx, yy, armSize, 0, Math.PI*2, true);
+            ctx.fill();
+            ctx.closePath();
+          }
+      }
+     };
+
+     arm.check = function(px, py) {
+       if ((arm.x - (wallWidth/2) <= player.X) &&
+          (arm.x + wallWidth  >= player.X) &&
+          (((player.Y < height/2 + wallHeight) && (arm.y < height/2) && player.Y > arm.y ) ||
+           ((player.Y > height/2 - wallHeight) && (arm.y > height/2) && player.Y < arm.y)
+          )
+          ) {
+          player.X += player.X > arm.x ? 100 : -100;
+          player.goalX = player.X;
+          health -= 2;
+          playSound("Bad_Guy_Contact");
+       }
+     };
+
+     arm.move = function(ctx) {
+      arm.x    -= 5 + level() / fps;
+      var speed = ((level() / 100) * (height / 4) + 1) / fps;
+      arm.y += (arm.direction * speed);
+      if (arm.y >= height) {
+       arm.direction = -10;
+      } else if (arm.y <=0) {
+       arm.direction = 10;
+      }
+      if (arm.x < 0) {
+        armMaxX += (width / arms.length);
+        arm.x=armMaxX;
+      }
+      arm.draw(ctx);
+      //console.log(arm.x + " " + (level() / fps));
+     };
+     return arm;
+  };
+
+  var arms = [];
+  var numArms = 2;
+  for(var i = 0; i < numArms; i++) {
+    arms[i] = new anArm(width + (width/2) * i, (height/2)*i);
+  }
+
+  var checkCollision = function(){
+    walls.forEach(function(wallList,i) {
+      wallList.forEach(function(e, j){
+        if (
+          (player.X < e.x + wallWidth) &&
+          (player.X + player.width > e.x) &&
+          (player.Y + player.height > e.y) &&
+          (player.Y + player.height < e.y + wallHeight) &&
+          ((e.y < wallHeight*1.5) || (e.y > height - wallHeight*1.5))
+        ) {
+          e.onCollide(e, i, j);
+        }
+      });
+    });
+    for(var i = 0; i < numArms; i++) {
+     arms[i].check(player.X, player.Y);
+    }
+  };
+
+  var level = function(){
+      return(~~((points / nrOfWalls) * 100) + 1);
+  }
+
+
+  var GameLoop = function(){
+    var controls = document.getElementById('controls');
+    if(paused) {
+      bgm.pause();
+      bgm.volume = 0;
+      controls.style.display = "block";
+    } else {
+      if(!boolBGM) { bgm.pause(); } else { bgm.play(); }
+      controls.style.display = "none";
+      clear(C.cc);
+      clear(C.ctx);
+      moveWalls();
+      walls.forEach(function(wallList, i){
+        wallList.forEach(function(wall, j) {
+          wall.draw(C.cc);
+          if(wall.type === 0 && Math.random() > 0.999) {
+            wall.spread(wall,i,j);
+            //console.log("Spread attempted.");
+          }
+        });
+      });
+
+      if(numArms < level() / 20) {
+        arms[arms.length] = new anArm(width + (width/(numArms+1)), Math.random() * height);
+        numArms = arms.length;
+      }
+      armMaxX = 0;
+      arms.forEach(function(arm, i){
+        armMaxX = Math.max(armMaxX, arm.x);
+      });
+
+      arms.forEach(function(arm, i){
+        arm.move(C.ctx);
+      });
+
+      drawBubbles(C.ctx);
+      getInput();
+      //if (player.X !=  player.goalX || player.Y != player.goalY) {
+        player.move();
+      //}
+      player.draw(C.ctx);
+
+
+      checkCollision();
+      if (health <= 0) {
+       health = 0;
+       GameOver();
+      } else {
+       health += (health < 10) ? 0.05 : 0;
+      }
+      if(health < 3) {
+        playSound("BAD_GUY");
+      }
+      C.ctx.beginPath();
+      C.ctx.fillStyle = "Black";
+      C.ctx.rect(0, height-21, width, height);
+      C.ctx.fill();
+      C.ctx.closePath();
+      C.ctx.fillStyle = "White";
+      C.ctx.font = "12pt Courier";
+      C.ctx.fillText("POINTS:" + points, 150, height-5);
+      C.ctx.fillText("HEALTH:" + ~~health, 10, height-5);
+      C.ctx.fillText("LEVEL:"  + ~~level(), 300, height-5);
+
+      var now = (new Date()).getTime();
+      delta = now - lastTime;
+      lastTime = now;
+      totalTime += delta;
+      frames++;
+      updateTime+=delta;
+      updateFrames++;
+
+      if(updateTime > 1000) {
+        fps = ~~(1000*updateFrames/updateTime);
+        //C.ctx.fillText("FPS:" + ~~(1000*updateFrames/updateTime) + "/" + ~~(1000*frames/totalTime), 640, height-5);
+        updateTime = 0;
+        updateFrames = 0;
+      }
+      C.ctx.fillText("FPS:" + ~~fps, 450, height-5);
+    }
+
+    if (state)
+      gLoop = setTimeout(GameLoop, 1000 / 60);
+  };
+
+   var fadeIn = function() {
+     //console.log(volBGM + "\t" + bgm.volume);
+     if (volBGM > bgm.volume) { bgm.volume = bgm.volume + 0.01; }
+     if (volBGM > bgm.volume) { setTimeout(fadeIn, 100); }
+     if (!paused) { bgm.play(); }
+   };
+
+   var volumeChange = function(sound, volume) {
+     try {
+       if(sound == bgm) {
+         volBGM = volume;
+         bgm.volume=volBGM;
+         document.getElementById("bgmvolumelabel").innerHTML = ~~(100*bgm.volume) + "%";
+       } else {
+         volSFX = volume;
+         document.getElementById("sfxvolumelabel").innerHTML = ~~(100*volSFX) + "%";
+         playSound("Move_Left");
+       }
+     } catch(e) {}
+   };
+
+  var GameOver = function(type){
+    state = false;
+    bgm.pause();
+    clearTimeout(gLoop);
+    setTimeout(function(){
+      var ctx = C.ctx;
+      clear(ctx);
+
+      try {
+        ctx.drawImage(title, 0, 0);
+      } catch(e){}
+      ctx.fillStyle = "White";
+      ctx.font = "48pt Arial";
+
+      ctx.fillText("Infected cells:" + points, width / 2 - (6*48), height / 2 - (3*48));
+      if(health === 0) {
+        ctx.fillText("Death of a Rogue Cell", width / 2 - (6*48), height / 2 - (5*48));
+        playSound("LOSER!!");
+        ctx.font = "14pt Arial";
+        ctx.fillText("You died! Avoid other cells when health is low.", 30, height - 50);
+
+      } else {
+        ctx.fillText("Infection Complete!", width / 2 - (6*48), height / 2 - (5*48));
+        playSound("win_loop");
+      }
+
+    }, 100);
+    setTimeout(init, 10000);
+
+
+  };
+
+   /* INITIALIZATION FUNCTION */
+   var init = function() {
+      width=w.innerWidth||e.clientWidth||g.clientWidth,height=w.innerHeight||e.clientHeight||g.clientHeight;
+      width = Math.max(width, 640);
+      height = Math.max(height, 640);
+      C.setWidth(width);
+      C.setHeight(height);
+      walls = [];
+      arms = [];
+      numArms = 0;
+      state = true;
+      gLoop = false;
+      points = 0;
+      health = 10;
+      bgm.volume = 0;
+      bgm.play();
+      fadeIn();
+      clear(C.cc);
+      clear(C.ctx);
+      clear(C.blood);
+      clear(C.bg);
+      fog(C.blood);
+      drawBubbles(C.ctx);
+      player.draw(C.ctx);
+      generateWalls();
+      var ctx = C.ctx;
+      var fontsize = Math.floor(width / 50);
+      ctx.fillStyle = "White";
+      ctx.font = (fontsize * 2) + "pt Courier";
+      ctx.fillText("Bloodflow: Rogue Cell", 10, fontsize*2);
+      ctx.font = fontsize + "pt Arial";
+      var instructionsX = width / 2;
+      ctx.fillText("Arrow Keys to move.", instructionsX, height-(fontsize*7));
+      ctx.fillText("Ram top and bottom cells to infect.", instructionsX, height-(fontsize*5.5));
+      ctx.fillText("Avoid killer cells.", instructionsX, height-(fontsize*4));
+      ctx.fillText("Hitting anything hurts, watch out!", instructionsX, height-(fontsize*2.5));
+
+      ctx.font = (fontsize + 1) + "pt Arial";
+      ctx.fillStyle = "Yellow";
+      ctx.fillText("Press any key to start.", instructionsX, height-(fontsize*1));
+
+      lastTime = (new Date()).getTime();
+      frames = 0;
+      totalTime = 0;
+      updateTime = 0;
+      updateFrames = 0;
+   };
+
+   init();
+
+
+
+</script>
+<div id="controls">
+  <input id="bgmvolume" type="range" min="0.0" max="1.0" value="0.25" step="0.01" onchange="volumeChange(bgm, this.value);"/>
+  <label for="bgmvolume" style="color:white; background:#111111;">Music <span id="bgmvolumelabel">25%</span></label>
+  <input id="sfxvolume" type="range" min="0.0" max="1.0" value="0.25" step="0.01" onchange="volumeChange('sfx', this.value);"/>
+  <label for="sfxvolume" style="color:white; background:#111111;">Effects <span id="sfxvolumelabel">25%</span></label>
+</div>
+</body>
+</html>

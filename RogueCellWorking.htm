@@ -1,0 +1,467 @@
+
+<html>
+<head>
+    
+    <title>Bloodflow</title>
+  <style>
+    body {
+      margin:0px;
+      padding:0px;
+      text-align:center;
+      background:black;
+    }
+    
+    canvas{
+      outline:0;
+      border:1px solid #000;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  </style>
+</head>
+  <body><br />
+  <canvas id='c' style = '//cursor : none;'></canvas>
+<!-- <script src="game.js"></script> -->
+<script>
+var width = 800, 
+  height = 600,
+  gLoop,
+  points = 0,
+  state = true,
+  c = document.getElementById('c'), 
+  ctx = c.getContext('2d');
+      
+  c.width = width;
+  c.height = height;
+
+
+var clear = function(){
+  //ctx.fillStyle = '#880044';
+  ctx.fillStyle = 'rgba(128,0,0,'+(1-(points/nrOfWalls))+')';
+  ctx.clearRect(0, 0, width, height);
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.closePath();
+  ctx.fill();
+};
+
+var fog = function(){
+  ctx.fillStyle = 'rgba(128,128,128,0';
+  var gradient = ctx.createLinearGradient(width/2, 0, width/2, height);   
+  gradient.addColorStop(0.0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(0.1, 'rgba(128,0,0,.8)');
+  gradient.addColorStop(0.4, 'rgba(64,0,0,.9)');
+  gradient.addColorStop(0.6, 'rgba(64,0,0,.9)');  
+  gradient.addColorStop(0.9, 'rgba(128,0,0,.8)');  
+  gradient.addColorStop(1.0, 'rgba(0,0,0,0)'); 
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.closePath();
+  ctx.fill();
+};
+
+var howManyCircles = 10, circles = [];
+var health = 10, bodyCircles = [];
+
+for (var i = 0; i < howManyCircles; i++) 
+  circles.push([Math.random() * width, Math.random() * height, Math.random() * 100, Math.random() / 8]);
+
+
+var drawBubbles = function(){
+  for (var i = 0; i < howManyCircles; i++) {
+    ctx.fillStyle = 'rgba(255, 255, 255, ' + circles[i][3] + ')';
+    ctx.beginPath();
+    ctx.arc(circles[i][0], circles[i][1], circles[i][2], 0, Math.PI * 2, true);
+    ctx.closePath();
+    ctx.fill();
+  }
+  MoveCircles(-20);
+};
+
+var MoveCircles = function(e){
+  for (var i = 0; i < howManyCircles; i++) {
+    if (circles[i][0] + circles[i][2] < 0) {
+      circles[i][0] = width; //Math.random() * width;
+      circles[i][2] = Math.random() * 40;
+      circles[i][1] = Math.random() * height; //0 - circles[i][2];
+      circles[i][3] = Math.random() / 8;
+    } else if (circles[i][0] - circles[i][2] > width) {
+      circles[i][0] = 0; //Math.random() * width;
+      circles[i][2] = Math.random() * 40;
+      circles[i][1] = Math.random() * height; //0 - circles[i][2];
+      circles[i][3] = Math.random() / 2;
+    }
+    else {
+      circles[i][0] += e;
+      circles[i][1] += (Math.random() - 0.5) * 10;
+    }
+  }
+};
+
+var player = new (function(){
+  var that = this;
+  //that.image = new Image();
+
+  //that.image.src = "http://i.imgur.com/roOGx.png";
+  that.width = 24;
+  that.height = 24;
+  that.frames = 1;
+  that.actualFrame = 0;
+  that.X = 0;
+  that.Y = 0; 
+  that.goalX = 0;
+  that.goalY = 0;
+
+  that.jumpSpeed = 0;
+  that.fallSpeed = 0;
+  
+  bodyCircles.push([0, 0, that.height*0.5, 0.5, 0]);
+  for (var i = 1; i < health; i++) 
+  bodyCircles.push([(Math.random() - 0.5) * that.width, (Math.random() - 0.5) * that.height, Math.random() * that.width/2, 1, Math.random() * 2 * Math.PI]);
+   
+    
+  that.move = function(){
+    if (that.goalX < 0) { that.goalX = 0; }
+    if (that.goalX > width) { that.goalX = width; }
+    if (that.goalY < 0) { that.goalY = 0; }
+    if (that.goalY > height) { that.goalY = height; }
+    var ease = 2;
+    that.setPosition((that.goalX + that.X*ease) / (ease+1), (that.goalY + that.Y*ease) / (ease+1));
+
+  };
+
+  
+  that.setPosition = function(x, y){
+    that.X = x;
+    that.Y = y;
+  };
+  
+  that.interval = 0;
+  that.draw = function(){
+    try {
+      //ctx.drawImage(that.image, 0, that.height * that.actualFrame, that.width, that.height, that.X, that.Y, that.width, that.height);
+      bodyCircles[0][4] += Math.random() / 5;
+      
+      ctx.save();
+      ctx.translate(that.X, that.Y);
+      var blorp = Math.cos(bodyCircles[0][4]) / 3;
+      ctx.scale(blorp+(health/5), (health/5)-blorp);
+      ctx.beginPath();
+      ctx.arc(bodyCircles[0][0], bodyCircles[0][1], bodyCircles[0][2], 0, Math.PI*2, true);
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,0,0,0.9)';
+      var gradient = ctx.createRadialGradient(bodyCircles[0][0]+that.X, bodyCircles[0][1]+that.Y, 5, bodyCircles[0][0]+that.X, bodyCircles[0][1]+that.Y, that.width);
+      gradient.addColorStop(0, 'rgba(255,0,0,0.6)');
+      gradient.addColorStop(1, 'rgba(255,255,0,0.5)');
+      ctx.fillStyle = gradient;
+      ctx.stroke();
+      ctx.fill();
+      //ctx.fillStyle = "rgba(0,0,0,1)";
+      //ctx.fillRect(that.X,that.Y,that.width,that.height);
+      ctx.closePath();
+
+
+      for (var i = 1; i < health; i++) {
+         bodyCircles[i][0] = (bodyCircles[i][0] + Math.cos(bodyCircles[i][4] )) % (that.width*2);
+         bodyCircles[i][1] = (bodyCircles[i][1] + Math.sin(bodyCircles[i][4] )) % (that.height*2);
+         bodyCircles[i][3] += (Math.random()- 0.5) * 0.001 ;
+         bodyCircles[i][4] += Math.random() / 100;
+
+         var fillStyle = ~~(bodyCircles[i][0] * 100) % 255;
+         console.log(fillStyle);
+	 ctx.fillStyle = 'rgba(255, 0, '+ ~~(bodyCircles[i][0] * 100) % 255 +', ' + bodyCircles[i][3] + ')';
+         ctx.strokeStyle = 'rgba(0,0,0,1)';
+         ctx.beginPath();
+         ctx.arc(bodyCircles[i][0] % ~~(that.width * .67) + that.X, bodyCircles[i][1] % ~~(that.height * .67) + that.Y, bodyCircles[i][2], 0, Math.PI * 2, true);
+         ctx.fill();
+         ctx.stroke();
+         ctx.closePath();          
+       }      
+    }
+    catch (e) {
+    }
+    
+    if (that.interval == 15 ) { // 4 ) {
+      if (that.actualFrame == that.frames) {
+        that.actualFrame = 0;
+      }
+      else {
+        that.actualFrame++;
+      }
+      that.interval = 0;
+    }
+    that.interval++;    
+  };
+})();
+
+  player.setPosition(width/2, height/2);
+  player.goalX = width/2;
+  player.goalY = height/2;
+
+
+  //document.onmousemove = function(e){
+  //  player.goalX = e.pageX - c.offsetLeft;
+  //  player.goalY = e.pageY - c.offsetTop;
+  //};
+  var keyDown = [];
+  document.onkeydown = function(e){
+    keyDown[e.keyCode] = true;
+  };
+
+  document.onkeyup = function(e){
+     keyDown[e.keyCode] = false;
+  };
+  
+  var getInput = function() {
+     if(keyDown[37]) { player.goalX -= 10; }  //left
+     if(keyDown[38]) { player.goalY -= 10; }  //up
+     if(keyDown[39]) { player.goalX += 10; } //right
+     if(keyDown[40]) { player.goalY += 10; } //down
+  };
+  
+  var walls = [],
+    wallWidth = 48,
+    wallHeight = 48,
+    vWalls = ~~(height / wallHeight) + 1,
+    hWalls = ~~(width / wallWidth *2) + 1,
+    nrOfWalls = vWalls * hWalls;
+  var newHeight = height/2;
+  var wallSpacing = 10;
+     
+  var Wall = function(x, y, type){
+    var that=this;
+    
+    that.changed = false;
+    
+    that.firstColor = 'rgba(255,100,0,.8)';
+    that.secondColor = 'rgba(255,255,0,.7)';
+    that.onCollide = function(w, i, j){
+      // what happens when player hits regular wall?
+      if(walls[i][j].changed === false) {
+        walls[i][j] = new Wall(w.x, w.y, 1 - w.type);
+        walls[i][j].changed = true;
+        points++;
+        if(points === nrOfWalls) { state = false; GameOver();}
+        player.Y += w.y < (height/2) ? 100 : -100 ;
+        player.X -= wallWidth;
+        player.goalY = player.Y;
+        player.goalX = player.X;
+        health -= 1;
+      }
+    };
+    
+    if (type === 1) {
+      that.firstColor = 'rgba(100,255,100,.8)';
+      that.secondColor = 'rgba(255,255,0,.7)';
+    }
+
+    that.x = ~~ x;
+    that.y = y;
+    that.type = type;
+    
+      
+    that.draw = function(){
+      var xx = that.x;
+      var yy = that.y;
+      var z = Math.abs((height/2) - that.y)  / 200;
+      z = (z*0.4) + 0.5;
+      var xDepth = ((width/2) - that.x) / 10;
+      var yDepth = ((height/2) - that.y) / 20;
+      xx = xx - (xDepth * z);      
+      yy = yy - (yDepth * z);
+      ctx.fillStyle = that.firstColor;
+      var gradient = ctx.createRadialGradient(xx, yy, 5, xx, yy, wallWidth * z);
+      gradient.addColorStop(0, that.firstColor);
+      gradient.addColorStop(1, that.secondColor);
+      ctx.fillStyle = gradient;
+      ctx.strokeStyle = that.secondColor;
+      ctx.beginPath();
+      ctx.arc(xx, yy, (wallWidth/2) * z, 0, Math.PI * 2, true);
+      ctx.fill();
+      ctx.stroke();
+      ctx.closePath();  
+      //ctx.font = "8pt Arial";
+      //ctx.fillText("" + ~~(z*1000), xx, yy);
+      
+    };
+  
+    return that;
+  };
+
+
+  var generateWalls = function(){
+    var type;
+    for (var i = 0; i < hWalls; i++) {
+      walls.push([]);
+      for (var j = 0; j < vWalls; j++) {
+        walls[i].push(new Wall(wallWidth * i, wallHeight * j, 0));
+      }
+    }
+  }();
+    
+  var moveWalls = function() {
+    for (var i = 0; i < hWalls; i++) {
+      for (var j = 0; j < vWalls; j++) { 
+        wall = walls[i][j];
+        wall.x = wall.x - 5;
+        wall.y = wall.y + 10;
+        if (wall.y > height + wallHeight) { 
+          wall.y= -wallHeight; 
+          wall.x -= wallWidth; 
+          wall.changed = false;
+        }
+   
+        if (wall.x < -(wallWidth)) {
+          walls[i][j] = new Wall(wall.x + wallWidth*hWalls, wall.y, wall.type);
+        }
+      } //for i
+    } // for j
+   
+  }; // moveWalls
+  
+  var anArm = function(x,y) {
+    arm = this;
+    arm.x = x;
+    arm.y = y;
+    arm.direction = 10;
+
+    arm.draw = function() {
+      ctx.fillStyle = 'rgba(0,0,0,.9);';
+      ctx.beginPath();
+      if( arm.y < height/2 ) {
+          step = ((height/2) - arm.y) / 10;
+          for(var i = 1; i < 10; i++) {
+            ctx.arc(arm.x, arm.y + step * i, (wallWidth/2), 0, Math.PI*2, true);
+          }
+      } else {
+          step = (arm.y - (height/2)) / 10;
+          for(var i = 1; i < 10; i++) {
+            ctx.arc(arm.x, (height/2) + step * i, (wallWidth/2), 0, Math.PI*2, true);
+          }
+      }
+      ctx.closePath();
+      ctx.fill();
+     }
+     
+     arm.check = function(px, py) {
+       if ((arm.x - (wallWidth/2) <= player.X) &&
+          (arm.x + wallWidth  >= player.X) &&
+          (((player.Y < height/2 + wallHeight) && (arm.y < height/2) && player.Y > arm.y ) ||
+           ((player.Y > height/2 - wallHeight) && (arm.y > height/2) && player.Y < arm.y)
+          )
+          ) {
+          player.X += player.X > arm.x ? 100 : -100;
+          player.goalX = player.X;
+          health -= 2;
+       }
+     }
+
+     arm.move = function() {
+      arm.x -= 5;
+      arm.y += arm.direction;
+      if (arm.y >= height) {
+       arm.direction = -10;
+      } else if (arm.y <=0) {
+       arm.direction = 10;
+      }
+      if (arm.x < 0) {
+         arm.x=width+100 + Math.random() * 100;
+      }
+      arm.draw();
+     }
+  }
+
+  var arms = [];
+  var numArms = 2;
+  for(var i = 0; i < numArms; i++) {
+    arms[i] = new anArm(width + 300 * i, 0);
+  }
+
+  var checkCollision = function(){
+    walls.forEach(function(wallList,i) {
+      wallList.forEach(function(e, j){
+          if (
+            (player.X < e.x + wallWidth) &&
+            (player.X + player.width > e.x) && 
+            (player.Y + player.height > e.y) && 
+            (player.Y + player.height < e.y + wallHeight) &&
+            ((e.y < wallHeight) || (e.y > height - wallHeight))
+          ) {
+            e.onCollide(e, i, j);
+          }
+      });
+    });
+    for(var i = 0; i < numArms; i++) {
+     arms[i].check(player.X, player.Y);
+    }
+  };
+
+  var GameLoop = function(){
+    clear();
+    moveWalls();
+    walls.forEach(function(wallList, i){
+      wallList.forEach(function(wall, j) {
+        
+        wall.draw();
+      });
+    });
+
+    fog();
+    
+    arms.forEach(function(arm, i){
+      arm.move();
+    });
+
+    drawBubbles();
+    getInput();
+    //if (player.X !=  player.goalX || player.Y != player.goalY) {
+      player.move();
+    //}
+    player.draw();  
+    
+    
+    checkCollision();
+    if (health <= 0) {
+     health = 0;
+     GameOver();
+    } else {
+     health += (health < 10) ? 0.05 : 0;
+    }
+    ctx.fillStyle = "White";
+    ctx.fillText("POINTS:" + points, 10, height-10);
+    ctx.fillText("HEALTH:" + ~~health, 10, height-20);
+    //ctx.fillText("player.X:" + player.X, width-100, height-10);
+    //ctx.fillText("arm X:" + armOne.x, width-100, height-20);
+
+    if (state)
+      gLoop = setTimeout(GameLoop, 1000 / 50);
+  };
+
+  var GameOver = function(){
+    state = false;
+    clearTimeout(gLoop);
+    setTimeout(function(){
+      clear();
+
+      try {
+        ctx.drawImage(title, 0, 0);
+      } catch(e){}
+      ctx.fillStyle = "White";
+      ctx.font = "48pt Arial";
+      ctx.fillText("GAME OVER", width / 2 - (6*48), height / 2 - (5*48));
+      ctx.fillText("YOUR RESULT:" + points, width / 2 - (6*48), height / 2 - (3*48));
+      if(health === 0) {
+        ctx.font = "14pt Arial";
+        ctx.fillText("You died! Avoid other cells when health is low.", 30, height - 50);
+
+      }
+    }, 100);
+
+  };
+  
+GameLoop();
+
+</script>
+</body>
+</html>
